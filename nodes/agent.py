@@ -23,21 +23,26 @@ def agent_node(state: ThreadState) -> dict:
     )
     
     # Bind tools for function calling
+    # 使用更具体的工具描述，引导 Agent 在需要时调用工具
     tools = [
         {
             "type": "function",
             "function": {
-                "name": "simulate_tool",
-                "description": "Simulate a tool execution for testing HITL",
+                "name": "create_ppt",
+                "description": "Create a PowerPoint presentation. Use this tool when the user asks to create a presentation, slides, or PPT about any topic.",
                 "parameters": {
                     "type": "object",
                     "properties": {
-                        "action": {
+                        "topic": {
                             "type": "string",
-                            "description": "The action to simulate"
+                            "description": "The topic of the presentation"
+                        },
+                        "slides_count": {
+                            "type": "integer",
+                            "description": "Number of slides to create"
                         }
                     },
-                    "required": ["action"]
+                    "required": ["topic"]
                 }
             }
         }
