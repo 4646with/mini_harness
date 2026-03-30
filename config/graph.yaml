@@ -6,8 +6,8 @@ graph:
   context_engineering:
     token_budget:
       enabled: true
-      max_tokens: 4000
-      max_messages: 20
+      max_tokens: 4000  # 正常阈值
+      max_messages: 20  # 正常阈值
     
     summarization:
       enabled: true

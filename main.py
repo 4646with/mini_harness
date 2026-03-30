@@ -5,6 +5,7 @@ from dotenv import load_dotenv
 from langchain_core.messages import HumanMessage
 from engine.loader import load_graph_config
 from engine.builder import build_graph
+from memory.store import get_memory_store
 
 
 def main():
@@ -51,18 +52,27 @@ def main():
         # Check if there's existing state
         current_state = graph.get_state(thread)
         
+        # Load memories and format as system message
+        memory_store = get_memory_store()
+        memories = memory_store.get_all()
+        
+        # Build memory context
+        memory_messages = []
+        if memories:
+            memory_text = "[系统记忆]\n" + "\n".join([
+                f"- {m['content']}" for m in memories[-3:]  # Last 3 memories
+            ])
+            memory_messages.append({"role": "system", "content": memory_text})
+        
         if current_state.values and current_state.values.get("messages"):
-            # Continue existing conversation - just add user message
-            graph.update_state(
-                thread,
-                {"messages": [HumanMessage(content=user_input)]}
-            )
-            # Stream with None to continue from current state
-            stream_input = None
+            # Continue existing conversation - use dict format for consistency
+            stream_input = {
+                "messages": memory_messages + [{"role": "user", "content": user_input}]
+            }
         else:
             # First message - create initial state with Phase 2 fields
             stream_input = {
-                "messages": [{"role": "user", "content": user_input}],
+                "messages": memory_messages + [{"role": "user", "content": user_input}],
                 "tool_calls": [],
                 "approved_tools": [],
                 "is_complete": False,
@@ -74,28 +84,36 @@ def main():
                 "needs_summarization": False
             }
         
-        # Run graph
-        print("\nAgent: ", end="", flush=True)
+        # Run graph with updates mode - only get incremental changes
+        print("\n🤖 Agent: ", end="", flush=True)
         
-        for event in graph.stream(stream_input, thread, stream_mode="values"):
-            if "messages" in event and event["messages"]:
-                last_message = event["messages"][-1]
-                if hasattr(last_message, "content") and last_message.content:
-                    print(last_message.content)
+        for event in graph.stream(stream_input, thread, stream_mode="updates"):
+            for node_name, node_state in event.items():
+                # Only care about agent node output
+                if node_name == "agent":
+                    messages = node_state.get("messages", [])
+                    if messages:
+                        last_msg = messages[-1]
+                        # Strict check: must be AI message with actual content
+                        if hasattr(last_msg, "type") and last_msg.type == "ai":
+                            if hasattr(last_msg, "content") and last_msg.content:
+                                # Skip if this message has tool_calls (intermediate step)
+                                if not (hasattr(last_msg, "tool_calls") and last_msg.tool_calls):
+                                    print(last_msg.content)
         
         # Check if interrupted (waiting for HITL)
         current_state = graph.get_state(thread)
         
         if current_state.next:
             # Graph is interrupted before tool node
-            print(f"\n[HITL] Tool execution requested")
+            print(f"\n⏸️ [HITL] Agent 申请调用工具，是否允许？")
             
             # Get pending tool calls from state
             state_values = current_state.values
             pending_tools = state_values.get("tool_calls", [])
             
             if pending_tools:
-                print(f"Pending tools: {len(pending_tools)}")
+                print(f"待执行工具: {len(pending_tools)} 个")
                 for i, tool in enumerate(pending_tools, 1):
                     # Handle both dict and ToolCall object formats
                     if isinstance(tool, dict):
@@ -112,7 +130,7 @@ def main():
                 
                 if approval == "y":
                     # Mark tools as approved
-                    print("[HITL] Approved, continuing...")
+                    print("[HITL] 授权通过，继续执行...")
                     
                     # Convert ToolCall objects to dicts for storage
                     approved_tools_converted = []
@@ -130,27 +148,32 @@ def main():
                     # Update state with approved tools
                     graph.update_state(
                         thread,
-                        {"approved_tools": approved_tools_converted, "tool_calls": []}
+                        {"approved_tools": approved_tools_converted}
                     )
                     
                     # Resume execution
-                    print("\nAgent: ", end="", flush=True)
+                    print("\n🤖 Agent: ", end="", flush=True)
                     ai_response_printed = False
-                    for event in graph.stream(None, thread, stream_mode="values"):
-                        if "messages" in event and event["messages"]:
-                            last_message = event["messages"][-1]
-                            # Only print AI messages with actual content (final response)
-                            if hasattr(last_message, "type") and last_message.type == "ai":
-                                if hasattr(last_message, "content") and last_message.content:
-                                    print(last_message.content)
-                                    ai_response_printed = True
+                    
+                    for event in graph.stream(None, thread, stream_mode="updates"):
+                        for node_name, node_state in event.items():
+                            if node_name == "agent":
+                                messages = node_state.get("messages", [])
+                                if messages:
+                                    last_msg = messages[-1]
+                                    if hasattr(last_msg, "type") and last_msg.type == "ai":
+                                        if hasattr(last_msg, "content") and last_msg.content:
+                                            # Skip if has tool_calls
+                                            if not (hasattr(last_msg, "tool_calls") and last_msg.tool_calls):
+                                                print(last_msg.content)
+                                                ai_response_printed = True
                     
                     if not ai_response_printed:
                         print("(No response generated)")
                 
                 else:
                     # Denied
-                    print("[HITL] Denied, skipping tool execution")
+                    print("🚫 [HITL] 已拒绝，跳过工具执行")
                     
                     # Clear tool calls and mark complete
                     graph.update_state(
@@ -159,13 +182,16 @@ def main():
                     )
                     
                     # Resume to get final response
-                    print("\nAgent: ", end="", flush=True)
-                    for event in graph.stream(None, thread, stream_mode="values"):
-                        if "messages" in event and event["messages"]:
-                            last_message = event["messages"][-1]
-                            if hasattr(last_message, "type") and last_message.type == "ai":
-                                if hasattr(last_message, "content") and last_message.content:
-                                    print(last_message.content)
+                    print("\n🤖 Agent: ", end="", flush=True)
+                    for event in graph.stream(None, thread, stream_mode="updates"):
+                        for node_name, node_state in event.items():
+                            if node_name == "agent":
+                                messages = node_state.get("messages", [])
+                                if messages:
+                                    last_msg = messages[-1]
+                                    if hasattr(last_msg, "type") and last_msg.type == "ai":
+                                        if hasattr(last_msg, "content") and last_msg.content:
+                                            print(last_msg.content)
 
 
 if __name__ == "__main__":

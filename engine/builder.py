@@ -1,5 +1,6 @@
 """Graph builder that constructs LangGraph from YAML configuration."""
 
+from functools import partial
 from langgraph.graph import StateGraph, END
 from langgraph.checkpoint.memory import MemorySaver
 from engine.state import ThreadState
@@ -45,14 +46,18 @@ def build_graph(config: GraphConfig):
     # Initialize graph with state schema
     workflow = StateGraph(ThreadState)
     
+    # Get context engineering config
+    token_budget_config = config.get_context_config("token_budget")
+    summarization_config = config.get_context_config("summarization")
+    
     # Add nodes
     workflow.add_node("agent", agent_node)
     workflow.add_node("tool", tool_node)
     
-    # Phase 2: Middleware chain nodes
-    workflow.add_node("token_budget", token_budget_node)
-    workflow.add_node("memory_inject", memory_inject_node)
-    workflow.add_node("summarize_context", summarize_context_node)
+    # Phase 2: Middleware chain nodes with config
+    workflow.add_node("token_budget", partial(token_budget_node, config=token_budget_config))
+    workflow.add_node("memory_inject", partial(memory_inject_node, config={}))
+    workflow.add_node("summarize_context", partial(summarize_context_node, config=summarization_config))
     
     # Phase 3 Extension: Lead-Sub orchestration
     # workflow.add_node("lead_plan", lead_plan_node)

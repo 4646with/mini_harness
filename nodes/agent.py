@@ -15,11 +15,11 @@ def agent_node(state: ThreadState) -> dict:
         State updates (messages, tool_calls, is_complete)
     """
     # Initialize LLM client (Kimi API compatible with OpenAI format)
-    # Note: Some models don't support temperature parameter
     llm = ChatOpenAI(
         model=os.getenv("KIMI_MODEL", "moonshot-v1-8k"),
         api_key=os.getenv("KIMI_API_KEY"),
         base_url=os.getenv("KIMI_BASE_URL", "https://api.moonshot.cn/v1"),
+        temperature=0.7,
     )
     
     # Bind tools for function calling

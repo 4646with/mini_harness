@@ -1,0 +1,23 @@
+[
+  {
+    "id": 1,
+    "content": "用户偏好使用中文交流",
+    "type": "preference",
+    "confidence": 0.95,
+    "created_at": "2026-03-31T00:36:08.137135",
+    "metadata": {
+      "trigger": "user_explicit_request"
+    }
+  },
+  {
+    "id": 2,
+    "content": "用户的名字是育浩",
+    "type": "profile",
+    "confidence": 0.9,
+    "created_at": "2026-03-31T00:38:18.473588",
+    "metadata": {
+      "trigger": "user_explicit_request",
+      "name": "育浩"
+    }
+  }
+]
