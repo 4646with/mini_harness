@@ -22,10 +22,12 @@ class ThreadState(TypedDict):
         approved_tools: List of tool calls approved by human
         is_complete: Whether the conversation is finished
         
-        # Phase 2 Extension Fields (预留)
-        # token_count: Current token count for budget control
-        # summary_context: Compressed summary of old messages
-        # memory_context: Injected facts from long-term memory
+        # Phase 2 Extension Fields
+        token_count: Current token count for budget control
+        token_budget: Token budget threshold
+        summary_context: Compressed summary of old messages
+        memory_context: Injected facts from long-term memory
+        needs_summarization: Flag to trigger context compression
         
         # Phase 3 Extension Fields (预留)
         # task_list: Sub-tasks for Lead-Sub orchestration
@@ -36,3 +38,10 @@ class ThreadState(TypedDict):
     tool_calls: list
     approved_tools: list
     is_complete: bool
+    
+    # Phase 2: Context & Memory fields
+    token_count: int
+    token_budget: int
+    summary_context: str
+    memory_context: list
+    needs_summarization: bool

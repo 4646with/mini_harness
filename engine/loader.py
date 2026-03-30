@@ -13,6 +13,8 @@ class GraphConfig:
         self.checkpointer = config_dict["graph"]["checkpointer"]
         self.nodes = config_dict["graph"]["nodes"]
         self.edges = config_dict["graph"]["edges"]
+        # Phase 2: Context & Memory configuration
+        self.context_config = config_dict["graph"].get("context_engineering", {})
     
     def get_node(self, name: str) -> dict | None:
         """Get node configuration by name."""
@@ -24,6 +26,17 @@ class GraphConfig:
     def get_edges_from(self, node_name: str) -> list[dict]:
         """Get all edges originating from a node."""
         return [e for e in self.edges if e["from"] == node_name]
+    
+    def get_context_config(self, section: str) -> dict:
+        """Get Phase 2 context engineering configuration.
+        
+        Args:
+            section: Configuration section (token_budget, summarization, memory)
+            
+        Returns:
+            Configuration dict for the section, or empty dict if not found
+        """
+        return self.context_config.get(section, {})
 
 
 def load_graph_config(path: str | Path = "config/graph.yaml") -> GraphConfig:

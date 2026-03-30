@@ -1,5 +1,7 @@
 """Tool node that executes approved tool calls."""
 
+from langchain_core.messages import ToolMessage
+
 from engine.state import ThreadState
 
 
@@ -29,15 +31,16 @@ def tool_node(state: ThreadState) -> dict:
     for tool_call in approved_tools:
         tool_name = tool_call.get("name", "unknown")
         tool_args = tool_call.get("args", {})
+        tool_call_id = tool_call.get("id", "")
         
         # Simulate execution (Phase 1)
         result_content = f"[Simulated] Tool '{tool_name}' executed with args: {tool_args}"
         
-        results.append({
-            "role": "tool",
-            "content": result_content,
-            "tool_call_id": tool_call.get("id", "")
-        })
+        # Use ToolMessage for proper LangGraph protocol
+        results.append(ToolMessage(
+            content=result_content,
+            tool_call_id=tool_call_id
+        ))
     
     return {
         "messages": results,

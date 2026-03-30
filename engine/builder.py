@@ -4,7 +4,13 @@ from langgraph.graph import StateGraph, END
 from langgraph.checkpoint.memory import MemorySaver
 from engine.state import ThreadState
 from engine.loader import GraphConfig
-from nodes import agent_node, tool_node
+from nodes import (
+    agent_node,
+    tool_node,
+    token_budget_node,
+    summarize_context_node,
+    memory_inject_node,
+)
 
 
 def has_tool_calls(state: ThreadState) -> str:
@@ -18,11 +24,16 @@ def is_complete(state: ThreadState) -> str:
     return END if state.get("is_complete", False) else "agent"
 
 
+def needs_summarization(state: ThreadState) -> str:
+    """Condition: Check if context needs to be summarized."""
+    return "summarize" if state.get("needs_summarization", False) else "agent"
+
+
 def build_graph(config: GraphConfig):
     """Build LangGraph from configuration.
     
     Phase 1: Basic agent-tool loop with HITL
-    Phase 2 Extension: Add middleware_chain before agent_node
+    Phase 2: Add middleware chain (token_budget, memory_inject, summarize_context)
     Phase 3 Extension: Add Lead-Sub orchestration nodes
     
     Args:
@@ -38,19 +49,36 @@ def build_graph(config: GraphConfig):
     workflow.add_node("agent", agent_node)
     workflow.add_node("tool", tool_node)
     
-    # Phase 2 Extension: Middleware chain
-    # workflow.add_node("token_budget", token_budget_node)
-    # workflow.add_node("memory_inject", memory_inject_node)
+    # Phase 2: Middleware chain nodes
+    workflow.add_node("token_budget", token_budget_node)
+    workflow.add_node("memory_inject", memory_inject_node)
+    workflow.add_node("summarize_context", summarize_context_node)
     
     # Phase 3 Extension: Lead-Sub orchestration
     # workflow.add_node("lead_plan", lead_plan_node)
     # workflow.add_node("sub_agent", sub_agent_node)
     # workflow.add_node("aggregate", aggregate_node)
     
-    # Add edges
-    workflow.set_entry_point("agent")
+    # Add edges - Phase 2 middleware chain
+    workflow.set_entry_point("token_budget")
     
-    # Conditional edge from agent
+    # Token budget -> Memory inject
+    workflow.add_edge("token_budget", "memory_inject")
+    
+    # Memory inject -> Summarize (conditional) or Agent
+    workflow.add_conditional_edges(
+        "memory_inject",
+        needs_summarization,
+        {
+            "summarize": "summarize_context",
+            "agent": "agent"
+        }
+    )
+    
+    # Summarize -> Agent
+    workflow.add_edge("summarize_context", "agent")
+    
+    # Agent -> Tool (conditional) or END
     workflow.add_conditional_edges(
         "agent",
         has_tool_calls,
@@ -60,7 +88,7 @@ def build_graph(config: GraphConfig):
         }
     )
     
-    # Edge from tool back to agent
+    # Tool back to agent (for next turn)
     workflow.add_edge("tool", "agent")
     
     # Configure checkpointer

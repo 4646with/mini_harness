@@ -2,6 +2,7 @@
 
 import os
 from dotenv import load_dotenv
+from langchain_core.messages import HumanMessage
 from engine.loader import load_graph_config
 from engine.builder import build_graph
 
@@ -47,18 +48,36 @@ def main():
         if not user_input:
             continue
         
-        # Add user message to state
-        initial_state = {
-            "messages": [{"role": "user", "content": user_input}],
-            "tool_calls": [],
-            "approved_tools": [],
-            "is_complete": False
-        }
+        # Check if there's existing state
+        current_state = graph.get_state(thread)
+        
+        if current_state.values and current_state.values.get("messages"):
+            # Continue existing conversation - just add user message
+            graph.update_state(
+                thread,
+                {"messages": [HumanMessage(content=user_input)]}
+            )
+            # Stream with None to continue from current state
+            stream_input = None
+        else:
+            # First message - create initial state with Phase 2 fields
+            stream_input = {
+                "messages": [{"role": "user", "content": user_input}],
+                "tool_calls": [],
+                "approved_tools": [],
+                "is_complete": False,
+                # Phase 2: Context & Memory initial values
+                "token_count": 0,
+                "token_budget": 4000,
+                "summary_context": "",
+                "memory_context": [],
+                "needs_summarization": False
+            }
         
         # Run graph
         print("\nAgent: ", end="", flush=True)
         
-        for event in graph.stream(initial_state, thread, stream_mode="values"):
+        for event in graph.stream(stream_input, thread, stream_mode="values"):
             if "messages" in event and event["messages"]:
                 last_message = event["messages"][-1]
                 if hasattr(last_message, "content") and last_message.content:
@@ -78,8 +97,14 @@ def main():
             if pending_tools:
                 print(f"Pending tools: {len(pending_tools)}")
                 for i, tool in enumerate(pending_tools, 1):
-                    tool_name = tool.get("name", "unknown")
-                    tool_args = tool.get("args", {})
+                    # Handle both dict and ToolCall object formats
+                    if isinstance(tool, dict):
+                        tool_name = tool.get("name", "unknown")
+                        tool_args = tool.get("args", {})
+                    else:
+                        # ToolCall object
+                        tool_name = getattr(tool, 'name', 'unknown')
+                        tool_args = getattr(tool, 'args', {})
                     print(f"  {i}. {tool_name}({tool_args})")
                 
                 # Request approval
@@ -89,20 +114,39 @@ def main():
                     # Mark tools as approved
                     print("[HITL] Approved, continuing...")
                     
+                    # Convert ToolCall objects to dicts for storage
+                    approved_tools_converted = []
+                    for tool in pending_tools:
+                        if isinstance(tool, dict):
+                            approved_tools_converted.append(tool)
+                        else:
+                            # Convert ToolCall object to dict
+                            approved_tools_converted.append({
+                                "id": getattr(tool, 'id', ''),
+                                "name": getattr(tool, 'name', 'unknown'),
+                                "args": getattr(tool, 'args', {})
+                            })
+                    
                     # Update state with approved tools
                     graph.update_state(
                         thread,
-                        {"approved_tools": pending_tools, "tool_calls": []}
+                        {"approved_tools": approved_tools_converted, "tool_calls": []}
                     )
                     
                     # Resume execution
+                    print("\nAgent: ", end="", flush=True)
+                    ai_response_printed = False
                     for event in graph.stream(None, thread, stream_mode="values"):
                         if "messages" in event and event["messages"]:
                             last_message = event["messages"][-1]
-                            if isinstance(last_message, dict) and "content" in last_message:
-                                print(f"\nTool result: {last_message['content']}")
-                            elif hasattr(last_message, "content") and last_message.content:
-                                print(f"\nAgent: {last_message.content}")
+                            # Only print AI messages with actual content (final response)
+                            if hasattr(last_message, "type") and last_message.type == "ai":
+                                if hasattr(last_message, "content") and last_message.content:
+                                    print(last_message.content)
+                                    ai_response_printed = True
+                    
+                    if not ai_response_printed:
+                        print("(No response generated)")
                 
                 else:
                     # Denied
@@ -115,11 +159,13 @@ def main():
                     )
                     
                     # Resume to get final response
+                    print("\nAgent: ", end="", flush=True)
                     for event in graph.stream(None, thread, stream_mode="values"):
                         if "messages" in event and event["messages"]:
                             last_message = event["messages"][-1]
-                            if hasattr(last_message, "content") and last_message.content:
-                                print(f"\nAgent: {last_message.content}")
+                            if hasattr(last_message, "type") and last_message.type == "ai":
+                                if hasattr(last_message, "content") and last_message.content:
+                                    print(last_message.content)
 
 
 if __name__ == "__main__":

@@ -1,8 +1,41 @@
 graph:
-  name: "mini_harness_v1"
+  name: "mini_harness_v2"
   checkpointer: "memory"
   
+  # Phase 2: Context & Memory Configuration
+  context_engineering:
+    token_budget:
+      enabled: true
+      max_tokens: 4000
+      max_messages: 20
+    
+    summarization:
+      enabled: true
+      keep_recent: 4
+      summary_model: "kimi-k2.5"
+    
+    memory:
+      enabled: true
+      confidence_threshold: 0.8
+      max_memories: 3
+      storage: "json_file"
+  
   nodes:
+    # Phase 2: Middleware chain
+    - name: "token_budget"
+      type: "middleware"
+      description: "Monitor token usage and trigger summarization"
+      
+    - name: "memory_inject"
+      type: "middleware"
+      description: "Inject relevant memories into context"
+      
+    - name: "summarize_context"
+      type: "conditional"
+      description: "Compress old messages when budget exceeded"
+      condition: "needs_summarization"
+    
+    # Phase 1: Core nodes
     - name: "agent"
       type: "agent"
       model: "kimi"
@@ -12,6 +45,25 @@ graph:
       require_approval: true
   
   edges:
+    # Phase 2: Middleware chain edges
+    - from: "__start__"
+      to: "token_budget"
+      
+    - from: "token_budget"
+      to: "memory_inject"
+      
+    - from: "memory_inject"
+      to: "summarize_context"
+      condition: "needs_summarization"
+      
+    - from: "memory_inject"
+      to: "agent"
+      condition: "no_summarization"
+      
+    - from: "summarize_context"
+      to: "agent"
+    
+    # Phase 1: Core edges
     - from: "agent"
       to: "tool"
       condition: "has_tool_calls"
