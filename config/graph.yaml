@@ -1,0 +1,24 @@
+graph:
+  name: "mini_harness_v1"
+  checkpointer: "memory"
+  
+  nodes:
+    - name: "agent"
+      type: "agent"
+      model: "kimi"
+      
+    - name: "tool"
+      type: "tool"
+      require_approval: true
+  
+  edges:
+    - from: "agent"
+      to: "tool"
+      condition: "has_tool_calls"
+      
+    - from: "agent"
+      to: "END"
+      condition: "is_complete"
+      
+    - from: "tool"
+      to: "agent"
