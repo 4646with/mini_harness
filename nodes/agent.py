@@ -1,7 +1,7 @@
 """调用 LLM 决定下一步操作的 Agent 节点"""
 
 import os
-from langchain_openai import ChatOpenAI
+from engine.patched_kimi import get_kimi_llm
 from engine.state import ThreadState
 
 
@@ -14,13 +14,8 @@ def agent_node(state: ThreadState) -> dict:
     返回:
         状态更新 (messages, tool_calls, is_complete)
     """
-    # 初始化 LLM 客户端 (Kimi API 兼容 OpenAI 格式)
-    llm = ChatOpenAI(
-        model=os.getenv("KIMI_MODEL", "moonshot-v1-8k"),
-        api_key=os.getenv("KIMI_API_KEY"),
-        base_url=os.getenv("KIMI_BASE_URL", "https://api.moonshot.cn/v1"),
-        temperature=0.7,
-    )
+    # 使用 PatchedKimiChatOpenAI 避免 reasoning_content 丢失问题
+    llm = get_kimi_llm()
     
     # 绑定工具以进行函数调用
     # DeerFlow 风格：Agent 自己决定保存什么记忆

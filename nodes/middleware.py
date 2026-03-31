@@ -14,9 +14,23 @@ from langchain_core.messages import (
     SystemMessage, HumanMessage, AIMessage, 
     RemoveMessage, ToolMessage
 )
-from langchain_openai import ChatOpenAI
+from engine.patched_kimi import get_summary_llm
 from engine.state import ThreadState
 from memory.store import get_memory_store
+
+
+# 摘要提示词模板
+SUMMARY_PROMPT_TEMPLATE = """你是一个对话摘要助手。请阅读以下对话历史，用 50-100 字总结核心内容。
+
+对话历史：
+{conversation_history}
+
+要求：
+1. 保留关键信息（用户意图、已完成操作、重要结论）
+2. 忽略重复性客套话
+3. 输出格式：纯文本摘要，不要任何格式标记
+
+摘要："""
 
 
 def token_budget_node(state: ThreadState, config: dict = None) -> dict:
@@ -57,7 +71,7 @@ def token_budget_node(state: ThreadState, config: dict = None) -> dict:
 
 def summarize_context_node(state: ThreadState, config: dict = None) -> dict:
     """
-    1:1 复刻 DeerFlow 的 Summarization Middleware
+    复刻 DeerFlow 的 Summarization Middleware
     参考：backend/docs/summarization.md
     
     核心设计：
@@ -121,15 +135,12 @@ def summarize_context_node(state: ThreadState, config: dict = None) -> dict:
             return {"messages": []}  # 极端情况：全部都是 tool 对，无法压缩
         
         # === 4. 生成摘要 (Summary Generation) ===
+        # 使用 PatchedKimiChatOpenAI 避免 reasoning_content 丢失问题
         try:
-            llm = ChatOpenAI(
-                model=summary_model,
-                api_key=os.getenv("KIMI_API_KEY"),
-                base_url=os.getenv("KIMI_BASE_URL", "https://api.moonshot.cn/v1"),
-            )
+            llm = get_summary_llm(config)
             
-            # 创建摘要提示词
-            summary_prompt = "请用一句话总结以下对话的主要内容（不超过100字）：\n\n"
+            # 构建对话历史
+            conversation_lines = []
             for msg in to_summarize:
                 if isinstance(msg, dict):
                     role = msg.get("role", "unknown")
@@ -137,8 +148,18 @@ def summarize_context_node(state: ThreadState, config: dict = None) -> dict:
                 else:
                     role = getattr(msg, "type", "unknown")
                     content = getattr(msg, "content", "")
+                
+                # 角色映射
+                role_map = {"human": "用户", "ai": "AI", "tool": "工具", "system": "系统"}
+                role_label = role_map.get(role, role)
+                
                 if content:
-                    summary_prompt += f"{role}: {content}\n"
+                    conversation_lines.append(f"{role_label}: {content}")
+            
+            conversation_history = "\n".join(conversation_lines)
+            summary_prompt = SUMMARY_PROMPT_TEMPLATE.format(
+                conversation_history=conversation_history
+            )
             
             summary_response = llm.invoke([HumanMessage(content=summary_prompt)])
             summary_text = summary_response.content
@@ -147,9 +168,17 @@ def summarize_context_node(state: ThreadState, config: dict = None) -> dict:
             # 降级方案: 简单描述
             summary_text = f"[之前对话包含 {len(to_summarize)} 条消息]"
         
-        summary_msg = SystemMessage(
-            content=f"[对话摘要] {summary_text}"
-        )
+        # === 4.1 摘要注入角色伪装 (区别三) ===
+        # DeerFlow 风格：把摘要伪装成人类消息，让模型认为是"人类在帮助回忆"
+        inject_as_human = config.get("inject_as_human", True) if config else True
+        if inject_as_human:
+            summary_msg = HumanMessage(
+                content=f"Here is a summary of the conversation to date: {summary_text}"
+            )
+        else:
+            summary_msg = SystemMessage(
+                content=f"[对话摘要] {summary_text}"
+            )
         
         # === 5. Context Replacement (LangGraph 专属替换法) ===
         # 使用 RemoveMessage 彻底删除旧消息
