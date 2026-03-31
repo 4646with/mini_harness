@@ -6,13 +6,24 @@ graph:
   context_engineering:
     token_budget:
       enabled: true
-      max_tokens: 4000  # 正常阈值
-      max_messages: 20  # 正常阈值
+      # 区别二：多维动态触发配置
+      trigger:
+        or_logic: true  # 任一条件满足即触发
+        conditions:
+          - type: "token_count"
+            threshold: 4000
+          - type: "message_count"
+            threshold: 20
+          - type: "context_fraction"
+            threshold: 0.8  # 达到最大上下文 80%
+        max_context: 128000  # Kimi 128k 上下文窗口
     
     summarization:
       enabled: true
       keep_recent: 4
-      summary_model: "kimi-k2.5"
+      model: "moonshot-v1-8k"
+      # 区别三：摘要伪装为 HumanMessage
+      inject_as_human: true
     
     memory:
       enabled: true
