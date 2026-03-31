@@ -34,20 +34,16 @@ SUMMARY_PROMPT_TEMPLATE = """你是一个对话摘要助手。请阅读以下对
 
 
 # ============================================================
-# 区别四：Token 精确计算
+# 区别四：简化版 Token 计算（用于触发判断）
 # ============================================================
-def calculate_messages_tokens(messages: list, encoding=None) -> int:
-    """精确计算消息列表的 Token 消耗
+def calculate_tokens_for_trigger(messages: list) -> int:
+    """用于触发判断的简化 Token 计算
     
-    考虑因素：
-    - 每条消息的基础开销（role 标记等）
-    - 不同角色的 token 开销
-    - Content 长度
-    - Tool call 特殊处理
+    简单粗暴：把所有 content 和 tool_calls 转成字符串后用 tiktoken 估算。
+    可能少算约 20%，但对于触发阈值判断已经足够精确。
     
     参数:
         messages: 消息列表
-        encoding: tiktoken 编码器，如果为 None 则使用降级方案
         
     返回:
         估算的 token 总数
@@ -55,63 +51,41 @@ def calculate_messages_tokens(messages: list, encoding=None) -> int:
     if not messages:
         return 0
     
-    # 如果有 tiktoken，使用精确计算
-    if encoding is not None:
-        total_tokens = 0
-        
-        for msg in messages:
-            # 每条消息的基础开销
-            total_tokens += 4
-            
-            # Content token
-            content = ""
-            if isinstance(msg, dict):
-                content = str(msg.get("content", ""))
-            elif hasattr(msg, "content"):
-                content = str(msg.content)
-            
-            if content:
-                total_tokens += len(encoding.encode(content))
-            
-            # Role token (根据消息类型)
-            if isinstance(msg, dict):
-                role = msg.get("role", "user")
-            else:
-                role = getattr(msg, "type", "user")
-            
-            role_tokens = {
-                "system": len(encoding.encode("system")),
-                "user": len(encoding.encode("user")),
-                "assistant": len(encoding.encode("assistant")),
-                "human": len(encoding.encode("user")),  # human = user
-                "ai": len(encoding.encode("assistant")),  # ai = assistant
-                "tool": len(encoding.encode("tool")),
-            }
-            total_tokens += role_tokens.get(role, 3)
-            
-            # Tool call 额外开销
-            if isinstance(msg, dict) and msg.get("tool_calls"):
-                total_tokens += len(encoding.encode(str(msg["tool_calls"])))
-            elif hasattr(msg, "tool_calls") and msg.tool_calls:
-                total_tokens += len(encoding.encode(str(msg.tool_calls)))
-        
-        # 消息列表格式开销
-        total_tokens += 3
-        
-        return total_tokens
+    try:
+        import tiktoken
+        encoding = tiktoken.get_encoding("cl100k_base")
+    except ImportError:
+        # 降级方案：简单字符估算
+        total_chars = sum(
+            len(str(msg.get("content", ""))) if isinstance(msg, dict) else len(str(msg.content))
+            for msg in messages
+        )
+        return total_chars // 4
     
-    # 降级方案：简单字符估算
-    total_chars = sum(
-        len(str(msg.get("content", ""))) if isinstance(msg, dict) else len(str(msg.content))
-        for msg in messages
-    )
-    return total_chars // 4
+    # 简单拼接所有内容
+    total = 0
+    for msg in messages:
+        content = ""
+        tool_calls = ""
+        
+        if isinstance(msg, dict):
+            content = str(msg.get("content", ""))
+            tool_calls = str(msg.get("tool_calls", ""))
+        else:
+            content = str(getattr(msg, "content", ""))
+            tool_calls = str(getattr(msg, "tool_calls", ""))
+        
+        combined = content + tool_calls
+        if combined:
+            total += len(encoding.encode(combined))
+    
+    return total
 
 
 # ============================================================
 # 区别二：多维动态触发 (OR Logic)
 # ============================================================
-def check_trigger_conditions(messages: list, config: dict, encoding=None) -> tuple[bool, str]:
+def check_trigger_conditions(messages: list, config: dict) -> tuple[bool, str]:
     """检查是否满足任意触发条件
     
     支持多维 OR 逻辑触发：
@@ -122,7 +96,6 @@ def check_trigger_conditions(messages: list, config: dict, encoding=None) -> tup
     参数:
         messages: 消息列表
         config: 触发配置
-        encoding: tiktoken 编码器
         
     返回:
         (是否触发, 触发原因)
@@ -135,7 +108,7 @@ def check_trigger_conditions(messages: list, config: dict, encoding=None) -> tup
     if not conditions:
         max_tokens = config.get("max_tokens", 4000) if config else 4000
         max_messages = config.get("max_messages", 20) if config else 20
-        current_tokens = calculate_messages_tokens(messages, encoding)
+        current_tokens = calculate_tokens_for_trigger(messages)
         
         if current_tokens > max_tokens:
             return True, f"token_count ({current_tokens} > {max_tokens})"
@@ -151,7 +124,7 @@ def check_trigger_conditions(messages: list, config: dict, encoding=None) -> tup
         threshold = condition.get("threshold", 0)
         
         if condition_type == "token_count":
-            current = calculate_messages_tokens(messages, encoding)
+            current = calculate_tokens_for_trigger(messages)
             if current > threshold:
                 triggered_reasons.append(f"token_count ({current} > {threshold})")
                 
@@ -163,7 +136,7 @@ def check_trigger_conditions(messages: list, config: dict, encoding=None) -> tup
         elif condition_type == "context_fraction":
             # context_fraction 需要知道最大上下文窗口
             max_context = config.get("max_context", 128000)  # 默认 Kimi 128k
-            current = calculate_messages_tokens(messages, encoding)
+            current = calculate_tokens_for_trigger(messages)
             fraction = current / max_context if max_context > 0 else 0
             if fraction >= threshold:
                 triggered_reasons.append(f"context_fraction ({fraction:.1%} >= {threshold:.1%})")
@@ -173,15 +146,6 @@ def check_trigger_conditions(messages: list, config: dict, encoding=None) -> tup
         return True, "; ".join(triggered_reasons)
     
     return False, ""
-
-
-def get_token_encoder():
-    """获取 tiktoken 编码器（带错误处理）"""
-    try:
-        import tiktoken
-        return tiktoken.get_encoding("cl100k_base")
-    except ImportError:
-        return None
 
 
 def token_budget_node(state: ThreadState, config: dict = None) -> dict:
@@ -199,17 +163,14 @@ def token_budget_node(state: ThreadState, config: dict = None) -> dict:
     返回:
         状态更新，包含 token 计数和摘要标志
     """
-    # 获取 tiktoken 编码器
-    encoding = get_token_encoder()
-    
     messages = state.get("messages", [])
     
-    # 使用精确 Token 计算
-    estimated_tokens = calculate_messages_tokens(messages, encoding)
+    # 使用简化版 Token 计算（用于触发判断）
+    estimated_tokens = calculate_tokens_for_trigger(messages)
     
     # 区别二：多维动态触发检查
     needs_summarization, trigger_reason = check_trigger_conditions(
-        messages, config, encoding
+        messages, config
     )
     
     # 获取预算阈值（用于显示）
@@ -250,9 +211,8 @@ def summarize_context_node(state: ThreadState, config: dict = None) -> dict:
     if len(messages) <= keep_recent:
         return {"messages": []}
     
-    # === 2. 使用精确 Token 计算（区别四）===
-    encoding = get_token_encoder()
-    current_tokens = calculate_messages_tokens(messages, encoding)
+    # === 2. 使用简化版 Token 计算（用于触发判断）===
+    current_tokens = calculate_tokens_for_trigger(messages)
     
     # 从 token_budget_node 获取阈值，或默认 4000
     trigger_tokens = state.get("token_budget", 4000)

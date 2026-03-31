@@ -100,6 +100,13 @@ def main():
                                 # Skip if this message has tool_calls (intermediate step)
                                 if not (hasattr(last_msg, "tool_calls") and last_msg.tool_calls):
                                     print(last_msg.content)
+                                    
+                                    # 打印计费信息
+                                    if hasattr(last_msg, "usage_metadata") and last_msg.usage_metadata:
+                                        usage = last_msg.usage_metadata
+                                        input_tokens = usage.get("input_tokens", 0)
+                                        output_tokens = usage.get("output_tokens", 0)
+                                        print(f"💰 [计费] 输入: {input_tokens}, 输出: {output_tokens}")
         
         # Check if interrupted (waiting for HITL)
         current_state = graph.get_state(thread)
@@ -192,6 +199,13 @@ def main():
                                     if hasattr(last_msg, "type") and last_msg.type == "ai":
                                         if hasattr(last_msg, "content") and last_msg.content:
                                             print(last_msg.content)
+                                            
+                                            # 打印计费信息
+                                            if hasattr(last_msg, "usage_metadata") and last_msg.usage_metadata:
+                                                usage = last_msg.usage_metadata
+                                                input_tokens = usage.get("input_tokens", 0)
+                                                output_tokens = usage.get("output_tokens", 0)
+                                                print(f"💰 [计费] 输入: {input_tokens}, 输出: {output_tokens}")
 
 
 if __name__ == "__main__":
