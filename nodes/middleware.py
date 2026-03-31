@@ -349,18 +349,8 @@ def memory_inject_node(state: ThreadState, config: dict = None) -> dict:
     if not filtered_memories:
         return {"memory_context": []}
     
-    # 将记忆格式化为 system 消息
-    memory_text = "[相关记忆]\n" + "\n".join([
-        f"- {m['content']}"
-        for m in filtered_memories
-    ])
-    
-    memory_message = SystemMessage(content=memory_text)
-    
-    # 将记忆插入到消息开头
-    new_messages = [memory_message] + messages
-    
+    # DeerFlow 设计原则：只写 state 字段，不修改消息列表
+    # 让 Agent 节点在构建 prompt 时自己决定如何使用 memory_context
     return {
-        "messages": new_messages,
         "memory_context": filtered_memories
     }

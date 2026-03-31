@@ -1,0 +1,76 @@
+🚀 优化一：用 Stream Bridge (流桥接器) 替代 7 层嵌套
+在 DeerFlow 源码中，它绝不会在路由层（类似你的 main.py）去手写一堆 if/else 来解析大模型的输出。它专门抽象出了一个叫做 StreamBridge 的模块。
+
+它的核心思想是：底层引擎只管跑，桥接器负责把底层乱七八糟的内部状态，翻译成标准化、类型化的“事件（Events）”，再吐给前端。
+
+我们可以把你的生成器升级成标准的 StreamBridge 模式：
+
+Python
+
+# 建议放在 engine/stream_bridge.py
+from typing import Generator, Dict, Any
+
+def extract_standard_events(graph_stream) -> Generator[Dict[str, Any], None, None]:
+    """
+    1:1 复刻 DeerFlow 的事件清洗思想：
+    将 LangGraph 复杂的节点状态，翻译为标准化的 UI/CLI 事件。
+    """
+    for event in graph_stream:
+        # 只关注 Agent 节点的输出
+        if "agent_node" not in event:
+            continue
+            
+        messages = event["agent_node"].get("messages", [])
+        if not messages:
+            continue
+            
+        last_msg = messages[-1]
+        if last_msg.type != "ai":
+            continue
+
+        # 事件翻译器：
+        
+        # 1. 如果大模型正在调用工具 -> 发出工具调用事件
+        if hasattr(last_msg, "tool_calls") and last_msg.tool_calls:
+            for tc in last_msg.tool_calls:
+                yield {"event_type": "tool_call", "tool_name": tc["name"], "args": tc["args"]}
+            continue # 工具调用消息不需要打印内容
+
+        # 2. 如果大模型有实质性回复 -> 发出文本内容事件
+        if hasattr(last_msg, "content") and last_msg.content:
+            yield {"event_type": "text_reply", "content": last_msg.content}
+
+        # 3. 如果消息附带了账单 -> 发出计费事件
+        if hasattr(last_msg, "usage_metadata") and last_msg.usage_metadata:
+            yield {"event_type": "billing", "usage": last_msg.usage_metadata}
+然后在 main.py 里使用它，你会发现主循环变得像诗一样干净：
+
+Python
+
+        # main.py 的打印循环
+        raw_stream = app.stream(None, config, stream_mode="updates")
+        
+        for event in extract_standard_events(raw_stream):
+            if event["event_type"] == "text_reply":
+                print(f"\n🤖 Agent: {event['content']}")
+                
+            elif event["event_type"] == "tool_call":
+                print(f"\n🛠️  [执行动作] Agent 正在调用工具: {event['tool_name']}")
+                
+            elif event["event_type"] == "billing":
+                usage = event["usage"]
+                print(f"\n💰 [计费账单] Input: {usage.get('input_tokens')} | Output: {usage.get('output_tokens')}")
+🚀 优化二：中间件模式 (Middleware) 的极致解耦
+我们在前几步把 Token 计算写在了 calculate_tokens_for_trigger 和 main.py 里。
+如果你看 DeerFlow 的源码目录：backend/packages/harness/deerflow/agents/middlewares/，你会发现它有 token_usage_middleware.py、memory_middleware.py 等十几个中间件。
+
+DeerFlow 采用了洋葱模型。这意味着计费监控根本不应该出现在 main.py 里。在真正的企业级代码里，我们会注册一个底层的拦截器（Callback），每当 LLM 吐出 usage_metadata 时，这个中间件会在后台默默把它写进日志数据库里。
+
+（不过在你目前的 CLI 阶段，优化一里的 StreamBridge 提取法已经足够优雅了，真正的 Middleware 可以在转 FastAPI 时再做）。
+
+🚀 优化三：迈向 Phase 3 (API 网关与 SSE 流)
+你给我的源码中，backend/app/gateway/routers/ 目录极其关键。DeerFlow 没有 main.py 这个命令行玩具，它通过 FastAPI 暴露接口（如 chats、threads 等），并且使用 SSE (Server-Sent Events) 向前端推送打字机效果的数据流。
+
+既然你的 Phase 1 和 Phase 2 的核心引擎已经打磨得如此坚固，我们是时候正式进入 Phase 3 了！
+
+我们要做的第一件事，就是把你的 main.py 抛弃，参考 DeerFlow 的 gateway 架构，写一个 api.py，用 FastAPI 把你现在的引擎包起来，让它具备向网页前端提供接口的能力！

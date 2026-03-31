@@ -6,6 +6,7 @@ from dotenv import load_dotenv
 from langchain_core.messages import HumanMessage
 from engine.loader import load_graph_config
 from engine.builder import build_graph
+from engine.stream_bridge import extract_standard_events
 from memory.store import get_memory_store
 
 
@@ -55,56 +56,48 @@ def main():
         # Check if there's existing state
         current_state = graph.get_state(thread)
         
-        # Load memories and format as system message
+        # Load memories
         memory_store = get_memory_store()
         memories = memory_store.get_all()
         
-        # Build memory context
-        memory_messages = []
+        # Build memory context (will be injected by agent node)
+        memory_context = []
         if memories:
-            memory_text = "[系统记忆]\n" + "\n".join([
-                f"- {m['content']}" for m in memories[-3:]
-            ])
-            memory_messages.append({"role": "system", "content": memory_text})
+            memory_context = [
+                {"role": "system", "content": "[系统记忆]\n" + "\n".join([
+                    f"- {m['content']}" for m in memories[-3:]
+                ])}
+            ]
         
         if current_state.values and current_state.values.get("messages"):
-            # Continue existing conversation
             stream_input = {
-                "messages": memory_messages + [{"role": "user", "content": user_input}]
+                "messages": [{"role": "user", "content": user_input}]
             }
         else:
-            # First message - create initial state
             stream_input = {
-                "messages": memory_messages + [{"role": "user", "content": user_input}],
+                "messages": [{"role": "user", "content": user_input}],
                 "tool_calls": [],
                 "approved_tools": [],
                 "is_complete": False,
                 "token_count": 0,
                 "token_budget": 4000,
                 "summary_context": "",
-                "memory_context": [],
+                "memory_context": memory_context,
                 "needs_summarization": False
             }
         
-        # Run graph
+        # Run graph with stream bridge
         print("\n🤖 Agent: ", end="", flush=True)
         
-        for event in graph.stream(stream_input, thread, stream_mode="updates"):
-            for node_name, node_state in event.items():
-                if node_name == "agent":
-                    messages = node_state.get("messages", [])
-                    if messages:
-                        last_msg = messages[-1]
-                        if hasattr(last_msg, "type") and last_msg.type == "ai":
-                            if hasattr(last_msg, "content") and last_msg.content:
-                                if not (hasattr(last_msg, "tool_calls") and last_msg.tool_calls):
-                                    print(last_msg.content)
-                                    
-                                    if hasattr(last_msg, "usage_metadata") and last_msg.usage_metadata:
-                                        usage = last_msg.usage_metadata
-                                        input_tokens = usage.get("input_tokens", 0)
-                                        output_tokens = usage.get("output_tokens", 0)
-                                        logger.info(f"💰 [计费] 输入: {input_tokens}, 输出: {output_tokens}")
+        raw_stream = graph.stream(stream_input, thread, stream_mode="updates")
+        
+        for event in extract_standard_events(raw_stream):
+            if event["event_type"] == "text_reply":
+                print(event["content"])
+                
+            elif event["event_type"] == "billing":
+                usage = event["usage"]
+                logger.info(f"💰 [计费] 输入: {usage['input_tokens']}, 输出: {usage['output_tokens']}")
         
         # Check if interrupted (waiting for HITL)
         current_state = graph.get_state(thread)
@@ -131,7 +124,6 @@ def main():
             if approval == "y":
                 logger.info("✅ HITL: 授权通过，继续执行...")
                 
-                # Resume graph with approval
                 approved_tool_calls = state_values.get("tool_calls", [])
                 graph.invoke(
                     None,
@@ -139,29 +131,18 @@ def main():
                     {"approved_tools": approved_tool_calls}
                 )
                 
-                # Resume to get final response
+                # Resume with stream bridge
                 print("\n🤖 Agent: ", end="", flush=True)
-                for event in graph.stream(None, thread, stream_mode="updates"):
-                    for node_name, node_state in event.items():
-                        if node_name == "agent":
-                            messages = node_state.get("messages", [])
-                            if messages:
-                                last_msg = messages[-1]
-                                if hasattr(last_msg, "type") and last_msg.type == "ai":
-                                    if hasattr(last_msg, "content") and last_msg.content:
-                                        print(last_msg.content)
-                                        
-                                        if hasattr(last_msg, "usage_metadata") and last_msg.usage_metadata:
-                                            usage = last_msg.usage_metadata
-                                            input_tokens = usage.get("input_tokens", 0)
-                                            output_tokens = usage.get("output_tokens", 0)
-                                            logger.info(f"💰 [计费] 输入: {input_tokens}, 输出: {output_tokens}")
-                                else:
-                                    print("(No response generated)")
+                raw_stream = graph.stream(None, thread, stream_mode="updates")
+                for event in extract_standard_events(raw_stream):
+                    if event["event_type"] == "text_reply":
+                        print(event["content"])
+                    elif event["event_type"] == "billing":
+                        usage = event["usage"]
+                        logger.info(f"💰 [计费] 输入: {usage['input_tokens']}, 输出: {usage['output_tokens']}")
             else:
                 logger.warning("🚫 HITL: 已拒绝，跳过工具执行")
                 
-                # Resume graph without approval
                 graph.invoke(
                     None,
                     thread,
@@ -169,21 +150,13 @@ def main():
                 )
                 
                 print("\n🤖 Agent: ", end="", flush=True)
-                for event in graph.stream(None, thread, stream_mode="updates"):
-                    for node_name, node_state in event.items():
-                        if node_name == "agent":
-                            messages = node_state.get("messages", [])
-                            if messages:
-                                last_msg = messages[-1]
-                                if hasattr(last_msg, "type") and last_msg.type == "ai":
-                                    if hasattr(last_msg, "content") and last_msg.content:
-                                        print(last_msg.content)
-                                        
-                                        if hasattr(last_msg, "usage_metadata") and last_msg.usage_metadata:
-                                            usage = last_msg.usage_metadata
-                                            input_tokens = usage.get("input_tokens", 0)
-                                            output_tokens = usage.get("output_tokens", 0)
-                                            logger.info(f"💰 [计费] 输入: {input_tokens}, 输出: {output_tokens}")
+                raw_stream = graph.stream(None, thread, stream_mode="updates")
+                for event in extract_standard_events(raw_stream):
+                    if event["event_type"] == "text_reply":
+                        print(event["content"])
+                    elif event["event_type"] == "billing":
+                        usage = event["usage"]
+                        logger.info(f"💰 [计费] 输入: {usage['input_tokens']}, 输出: {usage['output_tokens']}")
 
 
 if __name__ == "__main__":

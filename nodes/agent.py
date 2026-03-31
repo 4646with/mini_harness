@@ -1,12 +1,17 @@
 """调用 LLM 决定下一步操作的 Agent 节点"""
 
 import os
+from langchain_core.messages import SystemMessage
 from engine.patched_kimi import get_kimi_llm
 from engine.state import ThreadState
 
 
 def agent_node(state: ThreadState) -> dict:
     """处理消息并决定下一步操作的 Agent 节点
+    
+    DeerFlow 设计原则：
+    - Agent 节点在调用 LLM 前自己构建 prompt
+    - 从 state.memory_context 读取记忆并注入
     
     参数:
         state: 当前线程状态
@@ -71,8 +76,21 @@ def agent_node(state: ThreadState) -> dict:
     
     llm_with_tools = llm.bind_tools(tools)
     
+    # 从 state 读取 memory_context 并注入到 prompt
+    messages = state.get("messages", [])
+    memory_context = state.get("memory_context", [])
+    
+    # 构建 prompt：如果有记忆则注入
+    if memory_context:
+        memory_text = "[系统记忆]\n" + "\n".join([
+            f"- {m['content']}" for m in memory_context
+        ])
+        prompt = [SystemMessage(content=memory_text)] + messages
+    else:
+        prompt = messages
+    
     # 调用 LLM
-    response = llm_with_tools.invoke(state["messages"])
+    response = llm_with_tools.invoke(prompt)
     
     # 检查是否有工具调用
     tool_calls = []
