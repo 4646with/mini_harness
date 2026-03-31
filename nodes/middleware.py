@@ -1,11 +1,11 @@
-"""Middleware nodes for Phase 2: Context & Memory.
+"""阶段二中间件节点：Context & Memory
 
-This module contains nodes that process context before it reaches the agent:
-- token_budget: Monitor token usage and trigger summarization
-- memory_inject: Inject relevant memories into context
-- summarize_context: Compress old messages when budget exceeded
+本模块包含在 Agent 处理前处理上下文的节点：
+- token_budget: 监控 Token 使用量并触发摘要
+- memory_inject: 注入相关记忆到上下文
+- summarize_context: 当预算超限时压缩旧消息
 
-DeerFlow Reference: backend/docs/summarization.md
+参考 DeerFlow: backend/docs/summarization.md
 """
 
 import os
