@@ -62,10 +62,21 @@ def _execute_by_name(tool_name: str, tool_args: dict) -> str:
 
     skill_registry = get_skill_registry()
     if skill := skill_registry.get(tool_name):
-        import asyncio
-        return asyncio.run(skill.execute(**tool_args))
+        return _run_sync(skill.execute, **tool_args)
 
     return f"[错误] 未知工具: {tool_name}"
+
+
+def _run_sync(async_func, **kwargs) -> str:
+    """安全运行异步函数"""
+    import asyncio
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        return asyncio.run(async_func(**kwargs))
+
+    future = loop.create_task(async_func(**kwargs))
+    return loop.run_until_complete(future)
 
 
 def _execute_save_memory(args: dict, config: dict = None) -> str:

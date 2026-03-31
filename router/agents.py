@@ -65,6 +65,9 @@ class SubAgent:
                     from nodes.tool import execute_tool_call
                     return execute_tool_call(tc)
 
+            if hasattr(response, "content") and response.content:
+                return response.content
+
         return f"[完成] {goal}"
 
 
