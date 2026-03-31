@@ -20,29 +20,29 @@ from memory.store import get_memory_store
 
 
 def token_budget_node(state: ThreadState, config: dict = None) -> dict:
-    """Monitor token usage and determine if summarization is needed.
+    """监控 Token 使用量并判断是否需要摘要
     
-    Args:
-        state: Current thread state
-        config: Node configuration with max_tokens and max_messages
+    参数:
+        state: 当前线程状态
+        config: 节点配置，包含 max_tokens 和 max_messages
         
-    Returns:
-        State updates with token count and summarization flag
+    返回:
+        状态更新，包含 token 计数和摘要标志
     """
-    # Default configuration
+    # 默认配置
     max_tokens = config.get("max_tokens", 4000) if config else 4000
     max_messages = config.get("max_messages", 20) if config else 20
     
     messages = state.get("messages", [])
     
-    # Simple token estimation (4 chars ≈ 1 token for Chinese/English mix)
+    # 简单 Token 估算（中英文混合约 4 字符 ≈ 1 token）
     total_chars = sum(
         len(str(msg.get("content", ""))) if isinstance(msg, dict) else len(str(msg.content))
         for msg in messages
     )
     estimated_tokens = total_chars // 4
     
-    # Check if summarization is needed
+    # 检查是否需要摘要
     needs_summarization = (
         estimated_tokens > max_tokens or 
         len(messages) > max_messages
@@ -65,12 +65,12 @@ def summarize_context_node(state: ThreadState, config: dict = None) -> dict:
     2. AI/Tool Pair Protection：防止 tool_calls 和 tool 返回结果被拆散
     3. Context Replacement：使用 RemoveMessage 彻底删除旧消息
     
-    Args:
-        state: Current thread state
-        config: Node configuration with keep_recent and summary_model
+    参数:
+        state: 当前线程状态
+        config: 节点配置，包含 keep_recent 和 summary_model
         
-    Returns:
-        State updates with RemoveMessage instructions and summary
+    返回:
+        状态更新，包含 RemoveMessage 指令和摘要
     """
     # === 1. DeerFlow 配置映射 (Trigger & Keep) ===
     keep_recent = config.get("keep_recent", 4) if config else 4
@@ -92,7 +92,7 @@ def summarize_context_node(state: ThreadState, config: dict = None) -> dict:
         ])
         current_tokens = len(encoding.encode(full_text))
     except ImportError:
-        # Fallback: 简单字符估算
+        # 降级方案: 简单字符估算
         total_chars = sum(
             len(str(m.content)) for m in messages if hasattr(m, "content")
         )
@@ -128,7 +128,7 @@ def summarize_context_node(state: ThreadState, config: dict = None) -> dict:
                 base_url=os.getenv("KIMI_BASE_URL", "https://api.moonshot.cn/v1"),
             )
             
-            # Create summary prompt
+            # 创建摘要提示词
             summary_prompt = "请用一句话总结以下对话的主要内容（不超过100字）：\n\n"
             for msg in to_summarize:
                 if isinstance(msg, dict):
@@ -144,7 +144,7 @@ def summarize_context_node(state: ThreadState, config: dict = None) -> dict:
             summary_text = summary_response.content
             
         except Exception as e:
-            # Fallback: simple description
+            # 降级方案: 简单描述
             summary_text = f"[之前对话包含 {len(to_summarize)} 条消息]"
         
         summary_msg = SystemMessage(
@@ -165,7 +165,7 @@ def summarize_context_node(state: ThreadState, config: dict = None) -> dict:
             "messages": delete_instructions + [summary_msg] + to_keep,
             "summary_context": summary_text,
             "needs_summarization": False,
-            "token_count": len(str(to_keep)) // 4  # Re-estimate
+            "token_count": len(str(to_keep)) // 4  # 重新估算
         }
     
     # 未触发阈值，无事发生
@@ -173,28 +173,28 @@ def summarize_context_node(state: ThreadState, config: dict = None) -> dict:
 
 
 def memory_inject_node(state: ThreadState, config: dict = None) -> dict:
-    """Inject relevant memories into the context.
+    """将相关记忆注入到上下文
     
     DeerFlow 设计原则：
     - 记忆层只负责存储和检索，不做任何提取逻辑
     - 让 Agent 自己决定什么值得记住（通过 tool_calls 调用记忆工具）
     - 保持接口简单：add/search/get
     
-    Args:
-        state: Current thread state
-        config: Node configuration with confidence_threshold and max_memories
+    参数:
+        state: 当前线程状态
+        config: 节点配置，包含 confidence_threshold 和 max_memories
         
-    Returns:
-        State updates with injected memories
+    返回:
+        状态更新，包含注入的记忆
     """
-    # Default configuration
+    # 默认配置
     confidence_threshold = config.get("confidence_threshold", 0.8) if config else 0.8
     max_memories = config.get("max_memories", 3) if config else 3
     
-    # Get memory store
+    # 获取记忆存储
     store = get_memory_store()
     
-    # Get the last user message for context
+    # 获取最后一条用户消息用于上下文检索
     messages = state.get("messages", [])
     last_user_msg = ""
     for msg in reversed(messages):
@@ -209,16 +209,16 @@ def memory_inject_node(state: ThreadState, config: dict = None) -> dict:
     # 偏好提取应该由 Agent 通过工具调用完成（如 save_memory 工具）
     # 这里只做简单的检索注入
     
-    # Search for relevant memories
+    # 搜索相关记忆
     retrieved_memories = store.search(last_user_msg, threshold=confidence_threshold)
     
-    # Limit count
+    # 限制数量
     filtered_memories = retrieved_memories[:max_memories]
     
     if not filtered_memories:
         return {"memory_context": []}
     
-    # Format memories as system message
+    # 将记忆格式化为 system 消息
     memory_text = "[相关记忆]\n" + "\n".join([
         f"- {m['content']}"
         for m in filtered_memories
@@ -226,7 +226,7 @@ def memory_inject_node(state: ThreadState, config: dict = None) -> dict:
     
     memory_message = SystemMessage(content=memory_text)
     
-    # Insert memory at the beginning of messages
+    # 将记忆插入到消息开头
     new_messages = [memory_message] + messages
     
     return {
