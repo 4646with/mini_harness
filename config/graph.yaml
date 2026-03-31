@@ -30,7 +30,14 @@ graph:
       confidence_threshold: 0.8
       max_memories: 3
       storage: "json_file"
-  
+
+  # Phase 3: Skills Configuration
+  skills:
+    enabled: true
+    auto_load:
+      - "skills.builtin.save_memory"
+    registry: "dynamic"
+
   nodes:
     # Phase 2: Middleware chain
     - name: "token_budget"
