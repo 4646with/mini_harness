@@ -31,7 +31,24 @@ class MemoryStore:
         """保存记忆到文件"""
         with open(self.storage_path, "w", encoding="utf-8") as f:
             json.dump(self.memories, f, ensure_ascii=False, indent=2)
-    
+
+    def save_memory(self, content: str, memory_type: str = "general", config: dict = None) -> str:
+        """
+        保存单条记忆（带精确字符串去重功能）
+        """
+        for m in self.memories:
+            if m.get("content", "").strip() == content.strip():
+                print(f"ℹ️ [Memory Store] 记忆已存在，触发去重拦截: {content}")
+                return f"ℹ️ 记忆已存在，无需重复添加: {content}"
+
+        self.memories.append({
+            "content": content,
+            "type": memory_type
+        })
+        self._save()
+        print(f"✅ [Memory Store] 成功写入新记忆: {content}")
+        return f"✅ 成功写入新记忆: {content}"
+
     def add(self, content: str, memory_type: str = "preference", 
             confidence: float = 0.9, metadata: Dict = None):
         """添加新记忆"""

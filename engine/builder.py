@@ -1,8 +1,11 @@
 """Graph builder that constructs LangGraph from YAML configuration."""
 
+import os
+import sqlite3
 from functools import partial
 from langgraph.graph import StateGraph, END
 from langgraph.checkpoint.memory import MemorySaver
+from langgraph.checkpoint.sqlite import SqliteSaver
 from engine.state import ThreadState
 from engine.loader import GraphConfig
 from nodes import (
@@ -99,6 +102,11 @@ def build_graph(config: GraphConfig):
     # Configure checkpointer
     if config.checkpointer == "memory":
         checkpointer = MemorySaver()
+    elif config.checkpointer == "sqlite":
+        # 确保数据目录存在
+        os.makedirs("data", exist_ok=True)
+        conn = sqlite3.connect("data/checkpoints.db", check_same_thread=False)
+        checkpointer = SqliteSaver(conn)
     else:
         raise ValueError(f"Unsupported checkpointer: {config.checkpointer}")
     

@@ -54,21 +54,27 @@ def agent_node(state: ThreadState) -> dict:
                 "parameters": {
                     "type": "object",
                     "properties": {
-                        "content": {
-                            "type": "string",
-                            "description": "要记住的信息（例如：'用户名字是 John'，'用户喜欢中文'）"
-                        },
-                        "memory_type": {
-                            "type": "string",
-                            "enum": ["profile", "preference", "fact", "general"],
-                            "description": "记忆类型：profile（用户信息）、preference（用户喜好）、fact（一般事实）、general（其他）"
-                        },
-                        "confidence": {
-                            "type": "number",
-                            "description": "置信度 0-1，越高表示越确定"
+                        "memories": {
+                            "type": "array",
+                            "description": "需要保存的记忆列表。一次可以传入多条记忆。",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "content": {
+                                        "type": "string",
+                                        "description": "记忆的具体内容，例如：'用户名字是育浩'、'用户最喜欢绿色'"
+                                    },
+                                    "memory_type": {
+                                        "type": "string",
+                                        "enum": ["profile", "preference", "fact"],
+                                        "description": "记忆的分类"
+                                    }
+                                },
+                                "required": ["content", "memory_type"]
+                            }
                         }
                     },
-                    "required": ["content"]
+                    "required": ["memories"]
                 }
             }
         }
@@ -81,13 +87,21 @@ def agent_node(state: ThreadState) -> dict:
     memory_context = state.get("memory_context", [])
     
     # 构建 prompt：如果有记忆则注入
+    # 防呆警告：强制单次批量调用
+    memory_rules = """你是一个拥有长期记忆的智能助手。
+
+关于记忆工具的使用规则：
+1. 当用户提及个人信息、偏好或重要事实时，你必须使用 save_memory 工具。
+2. ⚠️ 极其重要：save_memory 工具支持批量保存。如果有多条信息需要保存（例如同时提到了名字和喜欢的颜色），请务必把它们放在同一个 tool_call 的 memories 数组中，**只调用一次 save_memory 工具**。绝不允许为了不同类型的信息连续发起多次调用！
+"""
+    
     if memory_context:
         memory_text = "[系统记忆]\n" + "\n".join([
             f"- {m['content']}" for m in memory_context
         ])
-        prompt = [SystemMessage(content=memory_text)] + messages
+        prompt = [SystemMessage(content=memory_rules + "\n" + memory_text)] + messages
     else:
-        prompt = messages
+        prompt = [SystemMessage(content=memory_rules)] + messages
     
     # 调用 LLM
     response = llm_with_tools.invoke(prompt)

@@ -53,14 +53,11 @@ def main():
         if not user_input:
             continue
         
-        # Check if there's existing state
         current_state = graph.get_state(thread)
         
-        # Load memories
         memory_store = get_memory_store()
         memories = memory_store.get_all()
         
-        # Build memory context (will be injected by agent node)
         memory_context = []
         if memories:
             memory_context = [
@@ -70,8 +67,10 @@ def main():
             ]
         
         if current_state.values and current_state.values.get("messages"):
+            # 继续对话，只传新消息（LangGraph 会自动合并到已有状态）
             stream_input = {
-                "messages": [{"role": "user", "content": user_input}]
+                "messages": [{"role": "user", "content": user_input}],
+                "memory_context": memory_context  # 保持 memory_context
             }
         else:
             stream_input = {
@@ -86,7 +85,6 @@ def main():
                 "needs_summarization": False
             }
         
-        # Run graph with stream bridge
         print("\n🤖 Agent: ", end="", flush=True)
         
         raw_stream = graph.stream(stream_input, thread, stream_mode="updates")
@@ -99,7 +97,6 @@ def main():
                 usage = event["usage"]
                 logger.info(f"💰 [计费] 输入: {usage['input_tokens']}, 输出: {usage['output_tokens']}")
         
-        # Check if interrupted (waiting for HITL)
         current_state = graph.get_state(thread)
         
         if current_state.next:
@@ -125,13 +122,11 @@ def main():
                 logger.info("✅ HITL: 授权通过，继续执行...")
                 
                 approved_tool_calls = state_values.get("tool_calls", [])
-                graph.invoke(
-                    None,
+                graph.update_state(
                     thread,
                     {"approved_tools": approved_tool_calls}
                 )
                 
-                # Resume with stream bridge
                 print("\n🤖 Agent: ", end="", flush=True)
                 raw_stream = graph.stream(None, thread, stream_mode="updates")
                 for event in extract_standard_events(raw_stream):
@@ -143,8 +138,7 @@ def main():
             else:
                 logger.warning("🚫 HITL: 已拒绝，跳过工具执行")
                 
-                graph.invoke(
-                    None,
+                graph.update_state(
                     thread,
                     {"approved_tools": [], "tool_calls": [], "is_complete": True}
                 )

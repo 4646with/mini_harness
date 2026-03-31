@@ -1,6 +1,6 @@
 graph:
   name: "mini_harness_v2"
-  checkpointer: "memory"
+  checkpointer: "sqlite"
   
   # Phase 2: Context & Memory Configuration
   context_engineering:
@@ -20,8 +20,8 @@ graph:
     
     summarization:
       enabled: true
-      keep_recent: 4
-      model: "moonshot-v1-8k"
+      keep_recent: 15
+      model: "kimi-k2.5"
       # 区别三：摘要伪装为 HumanMessage
       inject_as_human: true
     

@@ -55,32 +55,25 @@ def tool_node(state: ThreadState) -> dict:
     }
 
 
-def _execute_save_memory(args: dict) -> str:
-    """执行 save_memory 工具
-    
-    DeerFlow 风格：Agent 主动决定保存什么记忆
-    
-    参数:
-        args: 工具参数，包含 content, memory_type 等
-        
-    返回:
-        结果消息
-    """
+def _execute_save_memory(args: dict, config: dict = None) -> str:
+    """执行 save_memory 工具（支持批量）"""
     store = get_memory_store()
+    memories = args.get("memories", [])
     
-    content = args.get("content", "")
-    memory_type = args.get("memory_type", "general")
-    confidence = args.get("confidence", 0.9)
+    if not memories and "content" in args:
+        content = args.get("content")
+        memory_type = args.get("memory_type", "general")
+        return store.save_memory(content, memory_type, config)
     
-    if not content:
-        return "[错误] 记忆内容不能为空"
+    results = []
+    for mem in memories:
+        content = mem.get("content")
+        if content:
+            memory_type = mem.get("memory_type", "general")
+            res = store.save_memory(content, memory_type, config)
+            results.append(res)
     
-    # 保存到记忆存储
-    memory = store.add(
-        content=content,
-        memory_type=memory_type,
-        confidence=confidence,
-        metadata={"source": "agent_tool_call"}
-    )
-    
-    return f"[成功] 记忆已保存: {content[:50]}..."
+    if not results:
+        return "❌ 错误: 未提供有效的记忆内容。"
+        
+    return "\n".join(results)
