@@ -23,7 +23,7 @@ def agent_node(state: ThreadState) -> dict:
     )
     
     # Bind tools for function calling
-    # 使用更具体的工具描述，引导 Agent 在需要时调用工具
+    # DeerFlow 风格：Agent 自己决定保存什么记忆
     tools = [
         {
             "type": "function",
@@ -43,6 +43,32 @@ def agent_node(state: ThreadState) -> dict:
                         }
                     },
                     "required": ["topic"]
+                }
+            }
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "save_memory",
+                "description": "Save important information to long-term memory. Use this when the user mentions their name, preferences, or any fact they want you to remember for future conversations.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "content": {
+                            "type": "string",
+                            "description": "The information to remember (e.g., 'User's name is John', 'User prefers Chinese language')"
+                        },
+                        "memory_type": {
+                            "type": "string",
+                            "enum": ["profile", "preference", "fact", "general"],
+                            "description": "Type of memory: profile (user info), preference (user likes), fact (general info), general (other)"
+                        },
+                        "confidence": {
+                            "type": "number",
+                            "description": "Confidence level 0-1, higher means more certain"
+                        }
+                    },
+                    "required": ["content"]
                 }
             }
         }

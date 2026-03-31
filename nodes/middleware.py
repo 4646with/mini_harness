@@ -175,6 +175,11 @@ def summarize_context_node(state: ThreadState, config: dict = None) -> dict:
 def memory_inject_node(state: ThreadState, config: dict = None) -> dict:
     """Inject relevant memories into the context.
     
+    DeerFlow 设计原则：
+    - 记忆层只负责存储和检索，不做任何提取逻辑
+    - 让 Agent 自己决定什么值得记住（通过 tool_calls 调用记忆工具）
+    - 保持接口简单：add/search/get
+    
     Args:
         state: Current thread state
         config: Node configuration with confidence_threshold and max_memories
@@ -200,39 +205,9 @@ def memory_inject_node(state: ThreadState, config: dict = None) -> dict:
             last_user_msg = msg.content
             break
     
-    # Extract and save new memories from current message
-    # Check for language preference
-    if any(kw in last_user_msg for kw in ["中文", "Chinese", "用中文"]):
-        # Check if we already have this memory
-        existing = store.search("中文")
-        if not existing:
-            store.add(
-                content="用户偏好使用中文交流",
-                memory_type="preference",
-                confidence=0.95,
-                metadata={"trigger": "user_explicit_request"}
-            )
-    
-    # Check for name preference (e.g., "以后叫我XXX", "我的名字是XXX")
-    name_patterns = [
-        r"以后叫我(.+?)(?:，|。|\s|$)",
-        r"我的名字是(.+?)(?:，|。|\s|$)",
-        r"我是(.+?)(?:，|。|\s|$)",
-    ]
-    for pattern in name_patterns:
-        match = re.search(pattern, last_user_msg)
-        if match:
-            name = match.group(1).strip()
-            if name and len(name) <= 10:  # Reasonable name length
-                existing = store.search("名字")
-                if not existing:
-                    store.add(
-                        content=f"用户的名字是{name}",
-                        memory_type="profile",
-                        confidence=0.9,
-                        metadata={"trigger": "user_explicit_request", "name": name}
-                    )
-            break
+    # 注意：DeerFlow 风格 - 不在 middleware 里硬编码提取逻辑
+    # 偏好提取应该由 Agent 通过工具调用完成（如 save_memory 工具）
+    # 这里只做简单的检索注入
     
     # Search for relevant memories
     retrieved_memories = store.search(last_user_msg, threshold=confidence_threshold)

@@ -1,23 +1,32 @@
 [
   {
     "id": 1,
-    "content": "用户偏好使用中文交流",
-    "type": "preference",
-    "confidence": 0.95,
-    "created_at": "2026-03-31T00:36:08.137135",
+    "content": "用户的名字是育浩",
+    "type": "profile",
+    "confidence": 1,
+    "created_at": "2026-03-31T10:59:03.008809",
     "metadata": {
-      "trigger": "user_explicit_request"
+      "source": "agent_tool_call"
     }
   },
   {
     "id": 2,
-    "content": "用户的名字是育浩",
-    "type": "profile",
-    "confidence": 0.9,
-    "created_at": "2026-03-31T00:38:18.473588",
+    "content": "用户的名字是育浩，希望以后用中文对话",
+    "type": "preference",
+    "confidence": 1,
+    "created_at": "2026-03-31T11:00:27.882392",
     "metadata": {
-      "trigger": "user_explicit_request",
-      "name": "育浩"
+      "source": "agent_tool_call"
+    }
+  },
+  {
+    "id": 3,
+    "content": "育浩主动提及自己的名字，希望未来用中文对话。",
+    "type": "general",
+    "confidence": 0.9,
+    "created_at": "2026-03-31T11:03:07.743289",
+    "metadata": {
+      "source": "agent_tool_call"
     }
   }
 ]
