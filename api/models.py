@@ -14,10 +14,17 @@ class ChatRequest(BaseModel):
     session_id: Optional[str] = None
 
 
+class ToolCall(BaseModel):
+    id: str
+    name: str
+    args: Dict[str, Any]
+
+
 class ChatResponse(BaseModel):
+    status: str  # "completed" 或 "pending_tools"
     response: str
     thread_id: str
-    tool_calls: Optional[List[Dict[str, Any]]] = None
+    tool_calls: Optional[List[ToolCall]] = None
 
 
 class SkillInfo(BaseModel):
@@ -30,7 +37,15 @@ class ToolApprovalRequest(BaseModel):
     approved: bool
 
 
+class ToolActionRequest(BaseModel):
+    """工具批准/拒绝请求（用于无状态网关）"""
+    thread_id: str
+    tool_call_id: str
+    tool_name: str
+    action: str  # "approve" 或 "reject"
+
+
 class PendingToolCallsResponse(BaseModel):
     thread_id: str
-    tool_calls: List[Dict[str, Any]]
+    tool_calls: List[ToolCall]
     status: str
