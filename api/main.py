@@ -1,7 +1,12 @@
 """FastAPI 网关入口"""
+import os
+from pathlib import Path
 from typing import List
 from contextlib import asynccontextmanager
+from dotenv import load_dotenv
 from fastapi import FastAPI, Depends, HTTPException
+
+load_dotenv(Path(__file__).parent.parent / ".env")
 from api.models import (
     ChatRequest, ChatResponse, SkillInfo,
     ToolApprovalRequest, PendingToolCallsResponse
@@ -99,6 +104,7 @@ async def _direct_execute(request, graph):
 def _multi_agent_execute(request):
     lead = LeadAgent()
     sub_tasks = lead.decompose(request.message)
+    print(f"[API] LeadAgent 分解结果: {sub_tasks}")
 
     results = []
     for task in sub_tasks:

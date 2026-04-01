@@ -7,6 +7,9 @@ from langchain_core.language_models import LanguageModelInput
 from langchain_core.messages import AIMessage
 from langchain_openai import ChatOpenAI
 
+if os.getenv("KIMI_API_KEY") and not os.getenv("OPENAI_API_KEY"):
+    os.environ["OPENAI_API_KEY"] = os.getenv("KIMI_API_KEY")
+
 
 class PatchedKimiChatOpenAI(ChatOpenAI):
     """专门为 Kimi k2.5 (Thinking) 修复的 LangChain 补丁类。"""
