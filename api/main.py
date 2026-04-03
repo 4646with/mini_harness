@@ -196,8 +196,14 @@ def approve_tools(request: ToolActionRequest, graph=Depends(get_graph)):
     )
 
     if request.action == "approve":
-        # ✅ 【同意执行】：直接传入 None 唤醒图
-        # LangGraph 会自动执行 tool_node 并生成 ToolMessage
+        # 从挂起的状态中获取所有的 tool_calls 并存入 approved_tools
+        approved_tool_calls = state.values.get("tool_calls", [])
+        graph.update_state(
+            thread,
+            {"approved_tools": approved_tool_calls}
+        )
+        
+        # ✅ 【同意执行】：传入 None 唤醒图，让 tool_node 正常执行
         for event in graph.stream(None, thread):
             pass
         

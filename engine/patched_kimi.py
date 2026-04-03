@@ -39,12 +39,12 @@ class PatchedKimiChatOpenAI(ChatOpenAI):
                         p_msg["reasoning_content"] = reasoning
                         print(f"[KIMI PATCH] 塞入 reasoning_content (len={len(reasoning)})")
                     elif p_msg.get("tool_calls"):
-                        p_msg["reasoning_content"] = ""
-                        print(f"[KIMI PATCH] 塞入空 reasoning_content (reasoning=None, 有tool_calls)")
+                        p_msg["reasoning_content"] = "思考中..."
+                        print(f"[KIMI PATCH] 塞入默认 reasoning_content (reasoning=None, 有tool_calls)")
 
                 if p_msg.get("tool_calls") and "reasoning_content" not in p_msg:
-                    p_msg["reasoning_content"] = ""
-                    print(f"[KIMI PATCH] 兜底：强制塞入空 reasoning_content")
+                    p_msg["reasoning_content"] = "思考中..."
+                    print(f"[KIMI PATCH] 兜底：强制塞入默认 reasoning_content")
 
         # 调试：打印所有带 tool_calls 的消息
         tool_call_msgs = [(i, msg) for i, msg in enumerate(payload_messages) if msg.get("tool_calls")]
@@ -59,11 +59,32 @@ class PatchedKimiChatOpenAI(ChatOpenAI):
 
         return payload
 
+    def _create_chat_result(self, response, generation_info=None):
+        result = super()._create_chat_result(response, generation_info)
+        
+        # 提取真实的 reasoning_content 并存入 additional_kwargs
+        response_dict = response if isinstance(response, dict) else response.model_dump()
+        choices = response_dict.get("choices", [])
+        
+        for i, res in enumerate(choices):
+            message = res.get("message", {})
+            reasoning = message.get("reasoning_content")
+            if reasoning is not None and i < len(result.generations):
+                result.generations[i].message.additional_kwargs["reasoning_content"] = reasoning
+                print(f"[KIMI PATCH] 从响应提取到 reasoning_content: len={len(reasoning)}")
+                
+        return result
 
-def get_kimi_llm(model: str = None, temperature: float = None) -> PatchedKimiChatOpenAI:
-    model = model or os.getenv("KIMI_MODEL", "moonshot-v1-8k")
-    if temperature is None:
-        temperature = 1.0 if "k2.5" in model else 0.7
+
+
+
+def get_kimi_llm(config: dict = None) -> PatchedKimiChatOpenAI:
+    config = config or {}
+    model = config.get("model", os.getenv("KIMI_MODEL", "moonshot-v1-8k"))
+    if "k2.5" in model:
+        temperature = 1.0
+    else:
+        temperature = config.get("temperature", 0.7)
     return PatchedKimiChatOpenAI(
         model=model,
         api_key=os.getenv("KIMI_API_KEY"),
@@ -76,10 +97,11 @@ def get_summary_llm(config: dict = None) -> PatchedKimiChatOpenAI:
     config = config or {}
     model = config.get("model", os.getenv("SUMMARY_MODEL", "moonshot-v1-8k"))
     temperature = config.get("temperature", 0.3)
+    max_tokens = config.get("max_tokens", 200)
     return PatchedKimiChatOpenAI(
         model=model,
         api_key=os.getenv("KIMI_API_KEY") or os.getenv("SUMMARY_API_KEY"),
         base_url=os.getenv("SUMMARY_BASE_URL") or os.getenv("KIMI_BASE_URL", "https://api.moonshot.cn/v1"),
         temperature=temperature,
-        max_tokens=config.get("max_tokens", 200),
+        max_tokens=max_tokens,
     )

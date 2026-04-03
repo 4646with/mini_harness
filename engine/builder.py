@@ -53,8 +53,13 @@ def build_graph(config: GraphConfig):
     token_budget_config = config.get_context_config("token_budget")
     summarization_config = config.get_context_config("summarization")
     
+    # Merge LLM config into summarization config for factory pattern
+    llm_config = config.get_llm_config()
+    if llm_config:
+        summarization_config = {**llm_config, **summarization_config}
+    
     # Add nodes
-    workflow.add_node("agent", agent_node)
+    workflow.add_node("agent", partial(agent_node, config=llm_config))
     workflow.add_node("tool", tool_node)
     
     # Phase 2: Middleware chain nodes with config

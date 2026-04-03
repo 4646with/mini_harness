@@ -1,3 +1,8 @@
+llm:
+  provider: "moonshot"
+  model: "kimi-k2.5"
+  temperature: 0.7
+
 graph:
   name: "mini_harness_v2"
   checkpointer: "sqlite"

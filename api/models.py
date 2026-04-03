@@ -40,8 +40,8 @@ class ToolApprovalRequest(BaseModel):
 class ToolActionRequest(BaseModel):
     """工具批准/拒绝请求（用于无状态网关）"""
     thread_id: str
-    tool_call_id: str
-    tool_name: str
+    tool_call_id: Optional[str] = None
+    tool_name: Optional[str] = None
     action: str  # "approve" 或 "reject"
 
 

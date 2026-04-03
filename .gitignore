@@ -17,3 +17,9 @@ __pycache__/
 # OS
 .DS_Store
 Thumbs.db
+
+# Antigravity Skills
+.agents/
+
+# Data and State
+data/checkpoints.db*
